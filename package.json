@@ -1,0 +1,28 @@
+{
+  "name": "ipc-service",
+  "version": "0.0.1",
+  "description": "IPC Service",
+  "dependencies": {
+    "inherits": "^2.0.1"
+  },
+  "main": "index.js",
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/Theadd/ipc-service.git"
+  },
+  "author": {
+    "name": "Theadd",
+    "url": "https://github.com/Theadd/"
+  },
+  "bugs": {
+    "url": "https://github.com/Theadd/ipc-service/issues"
+  },
+  "homepage": "https://github.com/Theadd/ipc-service",
+  "keywords": [
+    "sails",
+    "service",
+    "ipc",
+    "sailsjs"
+  ],
+  "license": "GPL"
+}
