@@ -3,7 +3,8 @@
   "version": "0.0.1",
   "description": "IPC Service",
   "dependencies": {
-    "inherits": "^2.0.1"
+    "inherits": "^2.0.1",
+    "node-ipc": "git+https://git@github.com/Theadd/node-ipc.git"
   },
   "main": "index.js",
   "repository": {
