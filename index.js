@@ -232,6 +232,6 @@ Service.prototype.run = function () {
 
 Service.prototype.getStats = function () {
   this._stats['id'] = this._ipc.config['id']
-  this._stats['role'] = (this._isServer) ? : 'server' : (this._isClient) ? 'client' : 'unknown'
+  this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'unknown'
   return this._stats
 }
