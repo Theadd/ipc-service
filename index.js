@@ -86,7 +86,6 @@ Service.prototype.next = function (preserve) {
         self._recentPool.splice(0, 25)
       }
       if (self._pool.length == self._config['poolMinSize']) {
-        console.log("(self._pool.length == self._config['poolMinSize'])")
         self.emit('empty')
       }
       return item
@@ -108,7 +107,9 @@ Service.prototype.queue = function (item, prioritize) {
   var self = this
 
   if (self._isServer) {
-    return (prioritize || false) ? self._pool.unshift(item) : self._pool.push(item)
+    if (!self.exists(item)) {
+      return (prioritize || false) ? self._pool.unshift(item) : self._pool.push(item)
+    } else return false
   } else if (self._isClient && self._isClientConnected) {
     prioritize = prioritize || false;
     (prioritize) ? self._localPool.unshift(item) : self._localPool.push(item)
@@ -160,12 +161,14 @@ Service.prototype._serverCallback = function (ipc) {
     ipc.server.on (
       'item',
       function (data, socket) {
+        console.log("GOT ITEM: "+data)
         ipc._owner.queue(data, false)
       }
     )
     ipc.server.on (
       'priorityItem',
       function (data, socket) {
+        console.log("GOT PRIORITY ITEM: "+data)
         ipc._owner.queue(data, true)
       }
     )
@@ -189,6 +192,13 @@ Service.prototype._clientCallback = function(ipc) {
   )
 }
 
+/** Start or continue processing next item in pool.
+ *
+ * If config('runInterval') is NOT 0 it will call this method repeatedly given this value in milliseconds.
+ * Otherwise, you will have to call this method whenever required. Useful for avoiding overlaps.
+ *
+ * Emits a 'process' event containing the next item in pool (FIFO order by default).
+ */
 Service.prototype.run = function () {
   var self = this,
     item
@@ -197,6 +207,6 @@ Service.prototype.run = function () {
     self.emit('process', item)
   }
   if (self._config['runInterval']) {
-    setTimeout(self.run(), self._config['runInterval'])
+    setTimeout(function () { self.run() }, self._config['runInterval'])
   }
 }
