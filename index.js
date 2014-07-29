@@ -14,6 +14,7 @@ var defaultConfig = {
   'recentPoolMaxSize': 250,
   'poolMinSize': 0, //Whenever this._pool.length reaches this limit an 'empty' event is emitted.
   'runInterval': 0,
+  'queueStackSize': 42,
   'appspace': 'appspace.',
   'id': 'id',
   'retry': 5000,
@@ -29,6 +30,7 @@ function Service (config, sid) {
   self._pool = []
   self._localPool = []
   self._recentPool = []
+  self._stats = {'retry-queuing': 0}
   self._isClient = false
   self._isClientConnected = false
   self._isServer = false
@@ -128,8 +130,19 @@ Service.prototype.queue = function (item, prioritize) {
     }
     return true
   } else {
-    if (!self._isClient) self.client()
-    setTimeout( function () { self.queue(item, (prioritize || false))}, 200)
+    if (!self._isClient) {
+      self.client()
+    }
+    if (prioritize || false) {
+      return self._localPool.push(item)
+    } else {
+      if (self._stats['retry-queuing'] > self._config['queueStackSize']) {
+        return self._localPool.push(item)
+      } else {
+        ++self._stats['retry-queuing']
+        setTimeout( function () { self.queue(item, false); --self._stats['retry-queuing'] }, 5000)
+      }
+    }
     return true
   }
 }
@@ -176,14 +189,14 @@ Service.prototype._serverCallback = function (ipc) {
 }
 
 Service.prototype._clientCallback = function(ipc) {
-  ipc.of[ipc.config.id].socket.on(
+  ipc.of[ipc.config.id].on(
     'connect',
     function(){
       console.log("Connected to " + ipc.config.id + " IPC server")
       ipc._owner._isClientConnected = true
     }
   )
-  ipc.of[ipc.config.id].socket.on(
+  ipc.of[ipc.config.id].on(
     'disconnect',
     function(){
       console.log("Not connected to " + ipc.config.id + " IPC server")
