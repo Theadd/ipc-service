@@ -30,7 +30,6 @@ function Service (config, sid) {
   self._pool = []
   self._localPool = []
   self._recentPool = []
-  self._stats = {'retry-queuing': 0}
   self._isClient = false
   self._isClientConnected = false
   self._isServer = false
@@ -39,12 +38,14 @@ function Service (config, sid) {
   self._ipc = require('node-ipc')
   self._ipc.config = util.extendObject(self._ipc.config, self._config)
   self._ipc._owner = this
+  self._stats = {'sid': self._sid, 'id': self._ipc.config['id'], 'role': 'unknown'}
   var os = require('os')
   self._platform = os.platform()
 }
 
 Service.prototype.sid = function (value) {
   if (value || false) {
+    self._stats['sid'] = value
     return this._sid = value
   } else {
     return this._sid
@@ -79,6 +80,7 @@ Service.prototype.config = function (param, value) {
 Service.prototype.next = function (preserve) {
   var self = this
   preserve = preserve || false
+
   if (self._active && self._pool.length) {
     if (preserve) {
       return self._pool[0]
@@ -90,6 +92,8 @@ Service.prototype.next = function (preserve) {
       if (self._pool.length == self._config['poolMinSize']) {
         self.emit('empty')
       }
+      self._stats['pool-size'] = self._pool.length
+      ++self._stats['items-served']
       return item
     }
   } else {
@@ -110,8 +114,8 @@ Service.prototype.queue = function (item, prioritize) {
 
   if (self._isServer) {
     if (!self.exists(item)) {
-      return (prioritize || false) ? self._pool.unshift(item) : self._pool.push(item)
-    } else return false
+      return (self._stats['pool-size'] = (prioritize || false) ? self._pool.unshift(item) : self._pool.push(item))
+    } else return self._pool.length
   } else if (self._isClient && self._isClientConnected) {
     prioritize = prioritize || false;
     (prioritize) ? self._localPool.unshift(item) : self._localPool.push(item)
@@ -128,16 +132,16 @@ Service.prototype.queue = function (item, prioritize) {
         )
       }
     }
-    return true
+    return (self._stats['local-pool-size'] = self._localPool.length)
   } else {
     if (!self._isClient) {
       self.client()
     }
     if (prioritize || false) {
-      return self._localPool.push(item)
+      return (self._stats['local-pool-size'] = self._localPool.push(item))
     } else {
       if (self._stats['retry-queuing'] > self._config['queueStackSize']) {
-        return self._localPool.push(item)
+        return (self._stats['local-pool-size'] = self._localPool.push(item))
       } else {
         ++self._stats['retry-queuing']
         setTimeout( function () { self.queue(item, false); --self._stats['retry-queuing'] }, 5000)
@@ -149,6 +153,7 @@ Service.prototype.queue = function (item, prioritize) {
 
 /** Initialize and start IPC server. */
 Service.prototype.server = function () {
+  this._stats = util.extendObject(this._stats, {'items-served': 0, 'items-processed': 0, 'pool-size': 0, 'idle': 0})
   this._isServer = true
   console.log("Initializing " + this._config.id + " IPC server on platform " + this._platform);
   ((this._platform == 'win32') ? this._ipc.serveNet(this._ipc.config.networkHost, this._ipc.config.networkPort, this._serverCallback(this._ipc)) : this._ipc.serve(this._ipc.config.socketRoot + this._ipc.config.appspace + this._ipc.config.id, this._serverCallback(this._ipc)))
@@ -160,6 +165,7 @@ Service.prototype.server = function () {
  * Connect client to IPC server
  */
 Service.prototype.client = function () {
+  this._stats = util.extendObject(this._stats, {'retry-queuing': 0, 'local-pool-size': 0})
   this._isClient = true;
   (this._platform == 'win32') ? this._ipc.connectToNet(this._ipc.config.id, this._ipc.config.networkHost, this._ipc.config.networkPort, this._clientCallback) : this._ipc.connectTo(this._ipc.config.id, this._ipc.config.socketRoot + this._ipc.config.appspace + this._ipc.config.id, this._clientCallback)
 }
@@ -174,14 +180,12 @@ Service.prototype._serverCallback = function (ipc) {
     ipc.server.on (
       'item',
       function (data, socket) {
-        console.log("GOT ITEM: "+data)
         ipc._owner.queue(data, false)
       }
     )
     ipc.server.on (
       'priorityItem',
       function (data, socket) {
-        console.log("GOT PRIORITY ITEM: "+data)
         ipc._owner.queue(data, true)
       }
     )
@@ -218,8 +222,16 @@ Service.prototype.run = function () {
 
   if ((item = self.next()) != null) {
     self.emit('process', item)
+  } else {
+    ++self._stats['idle']
   }
   if (self._config['runInterval']) {
     setTimeout(function () { self.run() }, self._config['runInterval'])
   }
+}
+
+Service.prototype.getStats = function () {
+  this._stats['id'] = this._ipc.config['id']
+  this._stats['role'] = (this._isServer) ? : 'server' : (this._isClient) ? 'client' : 'unknown'
+  return this._stats
 }
