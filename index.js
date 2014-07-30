@@ -34,6 +34,7 @@ function Service (config, sid) {
   self._isClientConnected = false
   self._isServer = false
   self._active = true
+  self._alive = true
   self._config = util.extendObject(defaultConfig, config)
   self._ipc = require('node-ipc')
   self._ipc.config = util.extendObject(self._ipc.config, self._config)
@@ -151,6 +152,15 @@ Service.prototype.queue = function (item, prioritize) {
   }
 }
 
+Service.prototype.exec = function (command) {
+  var self = this
+
+  self._ipc.of[self._config.id].emit(
+    'command',
+    command
+  )
+}
+
 /** Initialize and start IPC server. */
 Service.prototype.server = function () {
   this._stats = util.extendObject(this._stats, {'items-served': 0, 'items-processed': 0, 'pool-size': 0, 'idle': 0})
@@ -189,6 +199,18 @@ Service.prototype._serverCallback = function (ipc) {
         ipc._owner.queue(data, true)
       }
     )
+    ipc.server.on (
+      'command',
+      function (data, socket) {
+        var spreadIt = ipc._owner._runCommand(data)
+        if (spreadIt != false) {
+          ipc.server.broadcast(
+            'command',
+            spreadIt
+          )
+        }
+      }
+    )
   }
 }
 
@@ -205,6 +227,12 @@ Service.prototype._clientCallback = function(ipc) {
     function(){
       console.log("Not connected to " + ipc.config.id + " IPC server")
       ipc._owner._isClientConnected = false
+    }
+  )
+  ipc.of[ipc.config.id].on(
+    'command',
+    function(data){
+      ipc._owner._runCommand(data)
     }
   )
 }
@@ -235,3 +263,68 @@ Service.prototype.getStats = function () {
   this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'unknown'
   return this._stats
 }
+
+Service.prototype._save = function (callback, path) {
+  var fs = require('fs')
+  data = JSON.stringify(this._pool)
+  path = path || ("./" + this._config.id + ".pool")
+  callback = callback || function(err) {
+    if (err) {
+      console.log(err)
+    }
+  }
+  fs.writeFile(path, data, callback)
+}
+
+Service.prototype._runCommand = function (command) {
+  var spreadCommand = false
+  command['sid'] = command['sid'] || null
+
+  if (command['name'].length && (command['sid'] == null || command['sid'] == this._sid)) {
+    switch (command['name']) {
+      case 'pause': this._active = false; break
+      case 'resume': this._active = true; break
+      case 'alive':
+      case 'start':
+      case 'stop':
+        this._alive = this._isClientConnected = (command['name'] == 'stop') ? false : (command['name'] == 'start') ? true : Boolean(command['value'])
+        spreadCommand = {'name': 'alive', 'value': this._alive}
+        console.log("Service._alive = " + this._alive)
+        break
+      case 'terminate':
+      case 'kill':
+        this._alive = false
+        spreadCommand = {'name': 'alive', 'value': this._alive}
+        this._save(util.killCurrentProcess)
+        break
+      case 'config':
+        command['value'] = command['value'] || {}
+        this.config(command['value'])
+        break
+      case 'spread':
+      case 'relay':
+        spreadCommand = command['value'] || false
+        break
+      case 'log':
+        console.log(command['value'])
+        break
+    }
+  }
+
+  return spreadCommand
+}
+
+
+/* COMMANDS:
+ pause: this._active = false
+ resume: this._active = true
+ stop: this._alive = false && clients.broadcastState
+ start: this._alive = true && clients.broadcastState
+ terminate|kill: this._alive = false && clients.broadcastState && empty pool[s]
+ config: {'param': value}
+ 'name': 'spread|relay', 'value': {'name'[, 'sid'][, 'value']}: (clients.broadcast)
+ 'name': 'log', 'value': 'message'
+
+ EXAMPLE COMMAND: {'name': 'config', 'value': {'retry': 2500}}
+
+ */
