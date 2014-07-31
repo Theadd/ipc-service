@@ -12,7 +12,7 @@ inherits(Service, EventEmitter)
 
 var defaultConfig = {
   'recentPoolMaxSize': 250,
-  'poolMinSize': 0, //Whenever this._pool.length reaches this limit an 'empty' event is emitted.
+  'poolMinSize': 0, //Whenever this._pool.length equals or is below this limit an 'empty' event is emitted.
   'runInterval': 0,
   'queueStackSize': 42,
   'appspace': 'appspace.',
@@ -97,7 +97,7 @@ Service.prototype.next = function (preserve) {
       return item
     }
   } else {
-    if (self._active && self._alive && self._pool.length == self._config['poolMinSize']) {
+    if (self._active && self._alive && self._pool.length <= self._config['poolMinSize']) {
       self.emit('empty')
     }
     return null
