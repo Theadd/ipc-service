@@ -36,7 +36,8 @@ function Service (config, sid) {
   self._active = true
   self._alive = true
   self._config = util.extendObject(defaultConfig, config)
-  self._ipc = require('node-ipc')
+  self._ipc = new require('node-ipc')
+  delete require.cache[require.resolve('node-ipc')]
   self._ipc.config = util.extendObject(self._ipc.config, self._config)
   self._stats = {'sid': self._sid, 'id': self._ipc.config['id'], 'role': 'unknown'}
   var os = require('os')
