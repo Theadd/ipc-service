@@ -38,7 +38,6 @@ function Service (config, sid) {
   self._config = util.extendObject(defaultConfig, config)
   self._ipc = require('node-ipc')
   self._ipc.config = util.extendObject(self._ipc.config, self._config)
-  self._ipc._owner = this
   self._stats = {'sid': self._sid, 'id': self._ipc.config['id'], 'role': 'unknown'}
   var os = require('os')
   self._platform = os.platform()
@@ -98,6 +97,9 @@ Service.prototype.next = function (preserve) {
       return item
     }
   } else {
+    if (self._active && self._alive && self._pool.length == self._config['poolMinSize']) {
+      self.emit('empty')
+    }
     return null
   }
 }
@@ -163,76 +165,92 @@ Service.prototype.exec = function (command) {
 
 /** Initialize and start IPC server. */
 Service.prototype.server = function () {
-  this._stats = util.extendObject(this._stats, {'items-served': 0, 'items-processed': 0, 'pool-size': 0, 'idle': 0})
-  this._isServer = true
-  console.log("Initializing " + this._config.id + " IPC server on platform " + this._platform);
-  ((this._platform == 'win32') ? this._ipc.serveNet(this._ipc.config.networkHost, this._ipc.config.networkPort, this._serverCallback(this._ipc)) : this._ipc.serve(this._ipc.config.socketRoot + this._ipc.config.appspace + this._ipc.config.id, this._serverCallback(this._ipc)))
+  var self = this
 
-  this._ipc.server.start()
+  self._stats = util.extendObject(self._stats, {'items-served': 0, 'items-processed': 0, 'pool-size': 0, 'idle': 0})
+  self._isServer = true
+  console.log("Initializing " + self._config.id + " IPC server on platform " + self._platform)
+  if (self._platform == 'win32') {
+    self._ipc.serveNet(self._ipc.config.networkHost, self._ipc.config.networkPort, function () {
+      return self._serverCallback.apply(self, arguments)
+    })
+  } else {
+    self._ipc.serve(self._ipc.config.socketRoot + self._ipc.config.appspace + self._ipc.config.id, function () {
+      return self._serverCallback.apply(self, arguments)
+    })
+  }
+
+  self._ipc.server.start()
 }
 
-/**
- * Connect client to IPC server
- */
+/** Connect client to IPC server. */
 Service.prototype.client = function () {
-  this._stats = util.extendObject(this._stats, {'retry-queuing': 0, 'local-pool-size': 0})
-  this._isClient = true;
-  (this._platform == 'win32') ? this._ipc.connectToNet(this._ipc.config.id, this._ipc.config.networkHost, this._ipc.config.networkPort, this._clientCallback) : this._ipc.connectTo(this._ipc.config.id, this._ipc.config.socketRoot + this._ipc.config.appspace + this._ipc.config.id, this._clientCallback)
+  var self = this
+
+  self._stats = util.extendObject(self._stats, {'retry-queuing': 0, 'local-pool-size': 0})
+  self._isClient = true
+  if (self._platform == 'win32') {
+    self._ipc.connectToNet(self._ipc.config.id, self._ipc.config.networkHost, self._ipc.config.networkPort, function () {
+      return self._clientCallback.apply(self, arguments)
+    })
+  } else {
+    self._ipc.connectTo(self._ipc.config.id, self._ipc.config.socketRoot + self._ipc.config.appspace + self._ipc.config.id, function () {
+      return self._clientCallback.apply(self, arguments)
+    })
+  }
 }
 
 /** IPC Callbacks */
 
-Service.prototype._serverCallback = function (ipc) {
-  if (!ipc.server) {
-    var self = this
-    setTimeout(function () { self._serverCallback(ipc)}, 100)
-  } else {
-    ipc.server.on (
-      'item',
-      function (data, socket) {
-        ipc._owner.queue(data, false)
+Service.prototype._serverCallback = function () {
+  var self = this
+
+  self._ipc.server.on (
+    'item',
+    function (data, socket) {
+      self.queue(data, false)
+    }
+  )
+  self._ipc.server.on (
+    'priorityItem',
+    function (data, socket) {
+      self.queue(data, true)
+    }
+  )
+  self._ipc.server.on (
+    'command',
+    function (data, socket) {
+      var spreadIt = self._runCommand(data)
+      if (spreadIt != false) {
+        self._ipc.server.broadcast(
+          'command',
+          spreadIt
+        )
       }
-    )
-    ipc.server.on (
-      'priorityItem',
-      function (data, socket) {
-        ipc._owner.queue(data, true)
-      }
-    )
-    ipc.server.on (
-      'command',
-      function (data, socket) {
-        var spreadIt = ipc._owner._runCommand(data)
-        if (spreadIt != false) {
-          ipc.server.broadcast(
-            'command',
-            spreadIt
-          )
-        }
-      }
-    )
-  }
+    }
+  )
 }
 
-Service.prototype._clientCallback = function(ipc) {
-  ipc.of[ipc.config.id].on(
+Service.prototype._clientCallback = function () {
+  var self = this
+  self._ipc.of[self._ipc.config.id].on(
     'connect',
-    function(){
-      console.log("Connected to " + ipc.config.id + " IPC server")
-      ipc._owner._isClientConnected = true
+    function () {
+      console.log("Connected to " + self._ipc.config.id + " IPC server")
+      self._isClientConnected = true
     }
   )
-  ipc.of[ipc.config.id].on(
+  self._ipc.of[self._ipc.config.id].on(
     'disconnect',
-    function(){
-      console.log("Not connected to " + ipc.config.id + " IPC server")
-      ipc._owner._isClientConnected = false
+    function () {
+      console.log("Not connected to " + self._ipc.config.id + " IPC server")
+      self._isClientConnected = false
     }
   )
-  ipc.of[ipc.config.id].on(
+  self._ipc.of[self._ipc.config.id].on(
     'command',
-    function(data){
-      ipc._owner._runCommand(data)
+    function (data) {
+      self._runCommand(data)
     }
   )
 }
@@ -259,6 +277,7 @@ Service.prototype.run = function () {
 }
 
 Service.prototype.getStats = function () {
+
   this._stats['id'] = this._ipc.config['id']
   this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'unknown'
   return this._stats
@@ -266,6 +285,7 @@ Service.prototype.getStats = function () {
 
 Service.prototype._save = function (callback, path) {
   var fs = require('fs')
+
   data = JSON.stringify(this._pool)
   path = path || ("./" + this._config.id + ".pool")
   callback = callback || function(err) {
