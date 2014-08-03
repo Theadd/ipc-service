@@ -20,7 +20,8 @@ var defaultConfig = {
   'retry': 5000,
   'silent': true,
   'networkHost': 'localhost',
-  'networkPort': 8000
+  'networkPort': 8000,
+  'path': './'
 }
 
 function Service (config, sid) {
@@ -39,9 +40,10 @@ function Service (config, sid) {
   self._ipc = new require('node-ipc')
   delete require.cache[require.resolve('node-ipc')]
   self._ipc.config = util.extendObject(self._ipc.config, self._config)
-  self._stats = {'sid': self._sid, 'id': self._ipc.config['id'], 'role': 'unknown'}
+  self._stats = {'sid': self._sid, 'id': self._ipc.config['id'], 'role': 'none'}
   var os = require('os')
   self._platform = os.platform()
+  setInterval(function () { self._sustainStability() }, 60000)
 }
 
 Service.prototype.sid = function (value) {
@@ -280,21 +282,118 @@ Service.prototype.run = function () {
 Service.prototype.getStats = function () {
 
   this._stats['id'] = this._ipc.config['id']
-  this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'unknown'
+  this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'none'
   return this._stats
 }
 
-Service.prototype._save = function (callback, path) {
-  var fs = require('fs')
+/** Push items from pool to disk. Used when local pool is too big or when receiving the kill or terminate command.
+ * All parameters are optional and can be specified in any order except <path> which, if specified, must be the
+ * second <string> parameter.
+ *
+ * @param {string} [filename=config.id + ".pool"]
+ * @param {string} [path=config.path]
+ * @param {number} [numItems=all] If not set, all items from pool will be stored on disk and removed from pool.
+ * @param {function} [callback]
+ */
+Service.prototype.save = function () {
+  var fs = require('fs'), filename, path, numItems, callback, data
+  args = Array.prototype.slice.call(arguments, 0)
 
-  data = JSON.stringify(this._pool)
-  path = path || ("./" + this._config.id + ".pool")
+  for (var key in args) {
+    switch (typeof args[key]) {
+      case 'function': callback = args[key]; break
+      case 'number': numItems = args[key]; break
+      case 'string': (filename || false) ? path = args[key] : filename = args[key]; break
+    }
+  }
+
+  if (this._isServer) {
+    data = this._pool.splice((numItems || this._pool.length) * -1).join("\n") + "\n"
+  } else {
+    data = this._localPool.splice((numItems || this._localPool.length) * -1).join("\n") + "\n"
+  }
+  path = path || this._config.path
+  filename = filename || (this._config.id + ".pool")
   callback = callback || function(err) {
     if (err) {
       console.log(err)
     }
   }
-  fs.writeFile(path, data, callback)
+
+  fs.appendFile(path + filename, data, callback)
+}
+
+/** Pull items from disk to pool.
+ * All parameters are optional and can be specified in any order except <path> which, if specified, must be the
+ * second <string> parameter.
+ *
+ * @param {string} [filename=config.id + ".pool"]
+ * @param {string} [path=config.path]
+ * @param {number} [numItems=250]
+ * @param {function} [callback]
+ */
+Service.prototype.restore = function () {
+  var self = this, fs = require('fs'), filename, path, numItems = 250, callback, data
+  args = Array.prototype.slice.call(arguments, 0)
+
+  if (!self._isServer) {
+    return console.warn("Only servers can restore items from disk!")
+  }
+
+  for (var key in args) {
+    switch (typeof args[key]) {
+      case 'function': callback = args[key]; break
+      case 'number': numItems = args[key]; break
+      case 'string': (filename || false) ? path = args[key] : filename = args[key]; break
+    }
+  }
+
+  path = path || self._config.path
+  filename = filename || (self._config.id + ".pool")
+  callback = callback || function(err) {
+    if (err) {
+      console.log(err)
+    }
+  }
+
+  if (fs.existsSync(path + filename)) {
+    var readline = require('readline'), stream = require('stream'),
+      instream = fs.createReadStream(path + filename),
+      outstream = new stream
+
+    self._rl = readline.createInterface(instream, outstream)
+    self._tmp = {'line': 0, 'remaining': ''}
+
+    self._rl.on('line', function(line) {
+      if (line.length) {
+        if (++self._tmp.line <= numItems) {
+          self.queue(line)
+        } else {
+          self._tmp.remaining += line + "\n"
+        }
+      }
+    })
+
+    self._rl.on('close', function() {
+      fs.writeFile(path + filename, self._tmp.remaining, callback)
+      delete self._tmp
+      delete self._rl
+    })
+  }
+}
+
+Service.prototype._sustainStability = function (filename, path, maxPoolSize) {
+  var fs = require("fs"), stats, poolSize
+  filename = filename || (this._config.id + ".pool")
+  path = path || this._config.path
+  maxPoolSize = maxPoolSize || 2000
+  poolSize = (this._isServer) ? this._pool.length : (this._isClient) ? this._localPool.length : (maxPoolSize / 2)
+
+  if (poolSize >= maxPoolSize) {
+    this.save(filename, path, poolSize - Math.ceil(maxPoolSize / 2))
+  } else if (this._isServer && poolSize <= Math.ceil(maxPoolSize / 4)) {
+    this.restore(filename, path, Math.ceil(maxPoolSize / 2))
+  }
 }
 
 Service.prototype._runCommand = function (command) {
@@ -316,7 +415,7 @@ Service.prototype._runCommand = function (command) {
       case 'kill':
         this._alive = false
         spreadCommand = {'name': 'alive', 'value': this._alive}
-        this._save(util.killCurrentProcess)
+        this.save(util.killCurrentProcess)
         break
       case 'config':
         command['value'] = command['value'] || {}
