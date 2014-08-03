@@ -44,6 +44,7 @@ function Service (config, sid) {
   var os = require('os')
   self._platform = os.platform()
   setInterval(function () { self._sustainStability() }, 60000)
+  self._handleSafeExit()
 }
 
 Service.prototype.sid = function (value) {
@@ -293,16 +294,18 @@ Service.prototype.getStats = function () {
  * @param {string} [filename=config.id + ".pool"]
  * @param {string} [path=config.path]
  * @param {number} [numItems=all] If not set, all items from pool will be stored on disk and removed from pool.
+ * @param {boolean} [writeSync=false]
  * @param {function} [callback]
  */
 Service.prototype.save = function () {
-  var fs = require('fs'), filename, path, numItems, callback, data
+  var fs = require('fs'), filename, path, numItems, writeSync = false, callback, data = ''
   args = Array.prototype.slice.call(arguments, 0)
 
   for (var key in args) {
     switch (typeof args[key]) {
       case 'function': callback = args[key]; break
       case 'number': numItems = args[key]; break
+      case 'boolean': writeSync = args[key]; break
       case 'string': (filename || false) ? path = args[key] : filename = args[key]; break
     }
   }
@@ -312,15 +315,18 @@ Service.prototype.save = function () {
   } else {
     data = this._localPool.splice((numItems || this._localPool.length) * -1).join("\n") + "\n"
   }
-  path = path || this._config.path
-  filename = filename || (this._config.id + ".pool")
-  callback = callback || function(err) {
-    if (err) {
-      console.log(err)
-    }
-  }
+  if (data.length > 1) {
+    path = path || this._config.path
+    filename = filename || (this._config.id + ".pool")
 
-  fs.appendFile(path + filename, data, callback)
+    if (writeSync) {
+      fs.appendFileSync(path + filename, data)
+    } else {
+      fs.appendFileSync(path + filename, data, callback)
+    }
+  } else if (typeof callback === "function") {
+    callback()
+  }
 }
 
 /** Pull items from disk to pool.
@@ -448,8 +454,30 @@ Service.prototype.alive = function (value) {
   }
 }
 
-Service.prototype.terminate = function (killProcess) {
+Service.prototype.terminate = function (killProcess, writeSync) {
   killProcess = killProcess || false
+  writeSync = writeSync || false
   this.alive(false)
-  this.save((killProcess) ? util.killCurrentProcess : null)
+  this.active(false)
+  this.save(((killProcess) ? util.killCurrentProcess : null), writeSync)
+}
+
+Service.prototype._handleSafeExit = function () {
+  var self = this
+  process.stdin.resume()
+  process.on('exit', function () {
+    arguments[String(arguments.length)] = false
+    arguments[String(arguments.length + 1)] = true
+    return self.terminate.apply(self, arguments)
+  })
+  process.on('SIGINT', function () {
+    arguments[String(arguments.length)] = true
+    arguments[String(arguments.length + 1)] = true
+    return self.terminate.apply(self, arguments)
+  })
+  process.on('uncaughtException', function () {
+    arguments[String(arguments.length)] = true
+    arguments[String(arguments.length + 1)] = true
+    return self.terminate.apply(self, arguments)
+  })
 }
