@@ -402,20 +402,18 @@ Service.prototype._runCommand = function (command) {
 
   if (command['name'].length && (command['sid'] == null || command['sid'] == this._sid)) {
     switch (command['name']) {
-      case 'pause': this._active = false; break
-      case 'resume': this._active = true; break
+      case 'pause': this.active(false); break
+      case 'resume': this.active(true); break
       case 'alive':
       case 'start':
       case 'stop':
-        this._alive = this._isClientConnected = (command['name'] == 'stop') ? false : (command['name'] == 'start') ? true : Boolean(command['value'])
+        this.alive((command['name'] == 'stop') ? false : (command['name'] == 'start') ? true : command['value'])
         spreadCommand = {'name': 'alive', 'value': this._alive}
-        console.log("Service._alive = " + this._alive)
         break
       case 'terminate':
       case 'kill':
-        this._alive = false
+        this.terminate(true)
         spreadCommand = {'name': 'alive', 'value': this._alive}
-        this.save(util.killCurrentProcess)
         break
       case 'config':
         command['value'] = command['value'] || {}
@@ -434,17 +432,24 @@ Service.prototype._runCommand = function (command) {
   return spreadCommand
 }
 
+Service.prototype.active = function (value) {
+  if (typeof value === "undefined") {
+    return this._active
+  } else {
+    this._active = Boolean(value)
+  }
+}
 
-/* COMMANDS:
- pause: this._active = false
- resume: this._active = true
- stop: this._alive = false && clients.broadcastState
- start: this._alive = true && clients.broadcastState
- terminate|kill: this._alive = false && clients.broadcastState && empty pool[s]
- config: {'param': value}
- 'name': 'spread|relay', 'value': {'name'[, 'sid'][, 'value']}: (clients.broadcast)
- 'name': 'log', 'value': 'message'
+Service.prototype.alive = function (value) {
+  if (typeof value === "undefined") {
+    return this._alive
+  } else {
+    this._alive = this._isClientConnected = Boolean(value)
+  }
+}
 
- EXAMPLE COMMAND: {'name': 'config', 'value': {'retry': 2500}}
-
- */
+Service.prototype.terminate = function (killProcess) {
+  killProcess = killProcess || false
+  this.alive(false)
+  this.save((killProcess) ? util.killCurrentProcess : null)
+}
