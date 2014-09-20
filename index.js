@@ -322,7 +322,7 @@ Service.prototype.save = function () {
     if (writeSync) {
       fs.appendFileSync(path + filename, data)
     } else {
-      fs.appendFileSync(path + filename, data, callback)
+      fs.appendFile(path + filename, data, callback)
     }
   } else if (typeof callback === "function") {
     callback()
