@@ -475,7 +475,8 @@ Service.prototype._handleSafeExit = function () {
     arguments[String(arguments.length + 1)] = true
     return self.terminate.apply(self, arguments)
   })
-  process.on('uncaughtException', function () {
+  process.on('uncaughtException', function (err) {
+    console.log(err.stack)
     arguments[String(arguments.length)] = true
     arguments[String(arguments.length + 1)] = true
     return self.terminate.apply(self, arguments)
