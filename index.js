@@ -112,15 +112,17 @@ Service.prototype.next = function (preserve) {
  *
  * @type {Function}
  */
-Service.prototype.exists = function (item) {
-  return (this._pool.indexOf(item) != -1 || this._recentPool.indexOf(item) != -1)
+Service.prototype.exists = function (item, skipRecentPool) {
+  skipRecentPool = skipRecentPool || false
+  return (this._pool.indexOf(item) != -1 || (!skipRecentPool && this._recentPool.indexOf(item) != -1))
 }
 
-Service.prototype.queue = function (item, prioritize) {
+Service.prototype.queue = function (item, prioritize, skipRecentPool) {
   var self = this
+  skipRecentPool = skipRecentPool || false
 
   if (self._isServer) {
-    if (!self.exists(item)) {
+    if (!self.exists(item, skipRecentPool)) {
       return (self._stats['pool-size'] = (prioritize || false) ? self._pool.unshift(item) : self._pool.push(item))
     } else return self._pool.length
   } else if (self._isClient && self._isClientConnected) {
