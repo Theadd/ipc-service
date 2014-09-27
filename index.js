@@ -147,7 +147,7 @@ Service.prototype.queue = function (item, prioritize, skipRecentPool) {
       self.client()
     }
     if (prioritize || false) {
-      return (self._stats['local-pool-size'] = self._localPool.push(item))
+      return (self._stats['local-pool-size'] = self._localPool.unshift(item))
     } else {
       if (self._stats['retry-queuing'] > self._config['queueStackSize']) {
         return (self._stats['local-pool-size'] = self._localPool.push(item))
