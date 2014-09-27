@@ -383,7 +383,11 @@ Service.prototype.restore = function () {
     })
 
     self._rl.on('close', function() {
-      fs.writeFile(path + filename, self._tmp.remaining, callback)
+      try {
+        fs.writeFile(path + filename, self._tmp.remaining, callback)
+      } catch (e) {
+        console.log(e)
+      }
       delete self._tmp
       delete self._rl
     })
