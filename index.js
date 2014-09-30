@@ -249,7 +249,9 @@ Service.prototype._clientCallback = function () {
   self._ipc.of[self._ipc.config.id].on(
     'disconnect',
     function () {
-      console.log("Not connected to " + self._ipc.config.id + " IPC server")
+      if (self._isClientConnected) {
+        console.log("Not connected to " + self._ipc.config.id + " IPC server")
+      }
       self._isClientConnected = false
     }
   )
