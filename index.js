@@ -475,19 +475,13 @@ Service.prototype._handleSafeExit = function () {
   var self = this
   process.stdin.resume()
   process.on('exit', function () {
-    arguments[String(arguments.length)] = false
-    arguments[String(arguments.length + 1)] = true
-    return self.terminate.apply(self, arguments)
+    return self.terminate.apply(self, [false, true])
   })
   process.on('SIGINT', function () {
-    arguments[String(arguments.length)] = true
-    arguments[String(arguments.length + 1)] = true
-    return self.terminate.apply(self, arguments)
+    return self.terminate.apply(self, [true, true])
   })
   process.on('uncaughtException', function (err) {
     console.log(err.stack)
-    arguments[String(arguments.length)] = true
-    arguments[String(arguments.length + 1)] = true
-    return self.terminate.apply(self, arguments)
+    return self.terminate.apply(self, [true, true])
   })
 }
