@@ -289,6 +289,9 @@ Service.prototype.getStats = function () {
   this._stats['id'] = this._ipc.config['id']
   this._stats['role'] = (this._isServer) ? 'server' : (this._isClient) ? 'client' : 'none'
   this._stats['recent-pool-size'] = this._recentPool.length
+  if (this._isClient) {
+    this._stats['connected'] = this._isClientConnected
+  }
   return this._stats
 }
 
