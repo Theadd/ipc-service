@@ -93,7 +93,7 @@ Service.prototype.next = function (preserve) {
       if (self._recentPool.push(item) > this._config['recentPoolMaxSize']) {
         self._recentPool.splice(0, 25)
       }
-      if (self._pool.length == self._config['poolMinSize']) {
+      if (self._pool.length <= self._config['poolMinSize']) {
         self.emit('empty')
       }
       self._stats['pool-size'] = self._pool.length
